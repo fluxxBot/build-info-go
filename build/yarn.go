@@ -33,7 +33,7 @@ func newYarnModule(srcPath string, containingBuild *Build) (*YarnModule, error) 
 		return nil, err
 	}
 	containingBuild.logger.Debug("Found Yarn executable at:", executablePath)
-	err = validateYarnVersion(executablePath, srcPath)
+	err = validateYarnVersion(executablePath, srcPath, containingBuild)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +156,8 @@ func (ym *YarnModule) AddArtifacts(artifacts ...entities.Artifact) error {
 	return ym.containingBuild.AddArtifacts(ym.name, entities.Npm, artifacts...)
 }
 
-func validateYarnVersion(executablePath, srcPath string) error {
-	yarnVersionStr, err := buildutils.GetVersion(executablePath, srcPath)
+func validateYarnVersion(executablePath, srcPath string, containingBuild *Build) error {
+	yarnVersionStr, err := buildutils.GetVersionWithLogs(executablePath, srcPath, containingBuild.logger)
 	if err != nil {
 		return err
 	}

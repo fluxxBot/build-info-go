@@ -151,6 +151,26 @@ func GetVersion(executablePath, srcPath string) (string, error) {
 	return strings.TrimSpace(outBuffer.String()), err
 }
 
+func GetVersionWithLogs(executablePath, srcPath string, log utils.Log) (string, error) {
+	log.Error("executable path = ", executablePath)
+	log.Error("src path = ", srcPath)
+
+	command := exec.Command(executablePath, "--version")
+	command.Dir = srcPath
+	outBuffer := bytes.NewBuffer([]byte{})
+	command.Stdout = outBuffer
+	errBuffer := bytes.NewBuffer([]byte{})
+	command.Stderr = errBuffer
+	err := command.Run()
+	log.Error("outBuffer: ", outBuffer.String())
+	log.Error("errBuffer: ", errBuffer.String())
+	if _, ok := err.(*exec.ExitError); ok {
+		err = errors.New("An error occurred while attempting to run the 'yarn --version' command. The executed yarn version could not be retrieved:\n" + err.Error())
+	}
+	log.Debug("finished")
+	return strings.TrimSpace(outBuffer.String()), err
+}
+
 // Builds a map of dependencies for Yarn versions < 2.0.0.
 // Note that in Yarn < 2.0.0, the project itself, along with its direct dependencies, is not present when running the
 // command 'yarn list'; therefore, the root is built manually.
