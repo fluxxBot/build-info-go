@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/jfrog/build-info-go/entities"
 )
 
 const (
@@ -570,7 +569,66 @@ func ReadNLines(path string, total int) (lines []string, err error) {
 	return
 }
 
-type FileDetails struct {
-	Checksum entities.Checksum
-	Size     int64
+func FindFilesInARepoBySHA(username, password, server, repository string, sha256s []string) ([]byte, error) {
+	if len(sha256s) == 0 {
+		return nil, fmt.Errorf("SHA list cannot be empty")
+	}
+
+	//Format the SHA array into the AQL "$in" list string: ["sha1", "sha2", ...]
+	quotedSHAs := make([]string, len(sha256s))
+	for i, sha := range sha256s {
+		quotedSHAs[i] = fmt.Sprintf(`"%s"`, strings.TrimSpace(sha))
+	}
+	shaListString := strings.Join(quotedSHAs, ", ")
+
+	// 2. Build the complete AQL query string using the formatted SHA list and repo key.
+	// We use the $and operator to filter by the efficient 'repo' field and the 'actual_sha256' field.
+	aqlQueryTemplate := `items.find(
+    {
+        "$and": [
+            { "repo": { "$eq": "%s" } }, 
+            { 
+                "actual_sha256": {
+                    "$in": [ %s ]
+                }
+            }
+        ]
+    }
+).include("repo", "path", "name", "actual_sha256", "actual_md5", "actual_sha1")`
+
+	aqlQuery := fmt.Sprintf(aqlQueryTemplate, repository, shaListString)
+
+	// 3. Prepare the HTTP POST request payload
+	payload := bytes.NewBuffer([]byte(aqlQuery))
+	aqlURL := server + "/artifactory/api/search/aql"
+
+	req, err := http.NewRequest("POST", aqlURL, payload)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	// 4. Set Authentication (Basic Auth) and Content-Type headers
+	req.Header.Set("Content-Type", "text/plain")
+	req.SetBasicAuth(username, password)
+
+	// 5. Execute the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request to Artifactory: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// 6. Read the full response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("error reading response body: %w", err)
+	}
+
+	// 7. Check the HTTP status code for non-successful responses
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Artifactory API failed with status %s. Response body: %s", resp.Status, string(bodyBytes))
+	}
+
+	return bodyBytes, nil
 }
